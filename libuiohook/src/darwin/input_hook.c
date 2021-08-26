@@ -97,6 +97,9 @@ static unsigned short int grab_mouse_click_event = 0x00;
 // To prevent crash on System Keys
 static bool system_key_pressed = false;
 
+// To prevent crash on Ctrl + click on M1 processor
+static bool ctrl_key_pressed = false;
+
 UIOHOOK_API void hook_set_dispatch_proc(dispatcher_t dispatch_proc) {
 	logger(LOG_LEVEL_DEBUG,	"%s [%u]: Setting new dispatch callback to %#p.\n",
 			__FUNCTION__, __LINE__, dispatch_proc);
@@ -146,9 +149,11 @@ static void initialize_modifiers() {
 	}
 	if (CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, kVK_Control)) {
 		set_modifier_mask(MASK_CTRL_L);
+		ctrl_key_pressed = true;
 	}
 	if (CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, kVK_RightControl)) {
 		set_modifier_mask(MASK_CTRL_R);
+		ctrl_key_pressed = true;
 	}
 	if (CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, kVK_Option)) {
 		set_modifier_mask(MASK_ALT_L);
@@ -617,11 +622,13 @@ static inline void process_modifier_changed(uint64_t timestamp, CGEventRef event
 		if (event_mask & kCGEventFlagMaskControl) {
 			// Process as a key pressed event.
 			set_modifier_mask(MASK_CTRL_L);
+			ctrl_key_pressed = true;
 			process_key_pressed(timestamp, event_ref);
 		}
 		else {
 			// Process as a key released event.
 			unset_modifier_mask(MASK_CTRL_L);
+			ctrl_key_pressed = false;
 			process_key_released(timestamp, event_ref);
 		}
 	}
@@ -665,11 +672,13 @@ static inline void process_modifier_changed(uint64_t timestamp, CGEventRef event
 		if (event_mask & kCGEventFlagMaskControl) {
 			// Process as a key pressed event.
 			set_modifier_mask(MASK_CTRL_R);
+			ctrl_key_pressed = true;
 			process_key_pressed(timestamp, event_ref);
 		}
 		else {
 			// Process as a key released event.
 			unset_modifier_mask(MASK_CTRL_R);
+			ctrl_key_pressed = false;
 			process_key_released(timestamp, event_ref);
 		}
 	}
@@ -1051,7 +1060,9 @@ CGEventRef hook_event_proc(CGEventTapProxy tap_proxy, CGEventType type, CGEventR
 		case NX_SYSDEFINED:
 			if(system_key_pressed == false) {
 				system_key_pressed = true;
-				process_system_key(timestamp, event_ref);
+				if(ctrl_key_pressed == false) {
+					process_system_key(timestamp, event_ref);
+				}
 			}
 			break;
 
