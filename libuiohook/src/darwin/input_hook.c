@@ -98,7 +98,10 @@ static unsigned short int grab_mouse_click_event = 0x00;
 static bool system_key_pressed = false;
 
 // To prevent crash on Ctrl + click on M1 processor
-static bool ctrl_key_pressed = false;
+static bool process_system_key_flag = false;
+static CGEventType previousEventType = NULL;
+static CGEventRef previousEventRef = NULL;
+uint64_t previousEventTimestamp = 0;
 
 UIOHOOK_API void hook_set_dispatch_proc(dispatcher_t dispatch_proc) {
 	logger(LOG_LEVEL_DEBUG,	"%s [%u]: Setting new dispatch callback to %#p.\n",
@@ -149,11 +152,9 @@ static void initialize_modifiers() {
 	}
 	if (CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, kVK_Control)) {
 		set_modifier_mask(MASK_CTRL_L);
-		ctrl_key_pressed = true;
 	}
 	if (CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, kVK_RightControl)) {
 		set_modifier_mask(MASK_CTRL_R);
-		ctrl_key_pressed = true;
 	}
 	if (CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, kVK_Option)) {
 		set_modifier_mask(MASK_ALT_L);
@@ -622,13 +623,11 @@ static inline void process_modifier_changed(uint64_t timestamp, CGEventRef event
 		if (event_mask & kCGEventFlagMaskControl) {
 			// Process as a key pressed event.
 			set_modifier_mask(MASK_CTRL_L);
-			ctrl_key_pressed = true;
 			process_key_pressed(timestamp, event_ref);
 		}
 		else {
 			// Process as a key released event.
 			unset_modifier_mask(MASK_CTRL_L);
-			ctrl_key_pressed = false;
 			process_key_released(timestamp, event_ref);
 		}
 	}
@@ -672,13 +671,11 @@ static inline void process_modifier_changed(uint64_t timestamp, CGEventRef event
 		if (event_mask & kCGEventFlagMaskControl) {
 			// Process as a key pressed event.
 			set_modifier_mask(MASK_CTRL_R);
-			ctrl_key_pressed = true;
 			process_key_pressed(timestamp, event_ref);
 		}
 		else {
 			// Process as a key released event.
 			unset_modifier_mask(MASK_CTRL_R);
-			ctrl_key_pressed = false;
 			process_key_released(timestamp, event_ref);
 		}
 	}
@@ -1044,25 +1041,39 @@ CGEventRef hook_event_proc(CGEventTapProxy tap_proxy, CGEventType type, CGEventR
 	// Get the event class.
 	switch (type) {
 		case kCGEventKeyDown:
+			if (previousEventType == NX_SYSDEFINED && process_system_key_flag && system_key_pressed == false) {
+				process_system_key(previousEventTimestamp, previousEventRef);
+				process_system_key_flag = false;
+			}
 			system_key_pressed = false;
 			process_key_pressed(timestamp, event_ref);
 			break;
 
 		case kCGEventKeyUp:
+			if (previousEventType == NX_SYSDEFINED && process_system_key_flag && system_key_pressed == false) {
+				process_system_key(previousEventTimestamp, previousEventRef);
+				process_system_key_flag = false;
+			}
 			system_key_pressed = false;
 			process_key_released(timestamp, event_ref);
 			break;
 
 		case kCGEventFlagsChanged:
+			if (previousEventType == NX_SYSDEFINED && process_system_key_flag && system_key_pressed == false) {
+				process_system_key(previousEventTimestamp, previousEventRef);
+				process_system_key_flag = false;
+			}
 			process_modifier_changed(timestamp, event_ref);
 			break;
 
 		case NX_SYSDEFINED:
+			if (previousEventType == NX_SYSDEFINED && process_system_key_flag && system_key_pressed == false) {
+					process_system_key(previousEventTimestamp, previousEventRef);
+					process_system_key_flag = false;
+			}
 			if(system_key_pressed == false) {
 				system_key_pressed = true;
-				if(ctrl_key_pressed == false) {
-					process_system_key(timestamp, event_ref);
-				}
+				process_system_key_flag = true;
 			}
 			break;
 
@@ -1132,6 +1143,10 @@ CGEventRef hook_event_proc(CGEventTapProxy tap_proxy, CGEventType type, CGEventR
 		case kCGEventOtherMouseDragged:
 			// FIXME The drag flag is confusing.  Use prev x,y to determine click.
 			// Set the mouse dragged flag.
+			if (previousEventType == NX_SYSDEFINED && process_system_key_flag && system_key_pressed == false) {
+				process_system_key(previousEventTimestamp, previousEventRef);
+				process_system_key_flag = false;
+			}
 			system_key_pressed = false;
 			mouse_dragged = true;
 			process_mouse_moved(timestamp, event_ref);
@@ -1139,6 +1154,10 @@ CGEventRef hook_event_proc(CGEventTapProxy tap_proxy, CGEventType type, CGEventR
 
 		case kCGEventMouseMoved:
 			// Set the mouse dragged flag.
+			if (previousEventType == NX_SYSDEFINED && process_system_key_flag && system_key_pressed == false) {
+				process_system_key(previousEventTimestamp, previousEventRef);
+				process_system_key_flag = false;
+			}
 			system_key_pressed = false;
 			mouse_dragged = false;
 			process_mouse_moved(timestamp, event_ref);
@@ -1146,6 +1165,10 @@ CGEventRef hook_event_proc(CGEventTapProxy tap_proxy, CGEventType type, CGEventR
 
 
 		case kCGEventScrollWheel:
+			if (previousEventType == NX_SYSDEFINED && process_system_key_flag && system_key_pressed == false) {
+				process_system_key(previousEventTimestamp, previousEventRef);
+				process_system_key_flag = false;
+			}
 			system_key_pressed = false;
 			process_mouse_wheel(timestamp, event_ref);
 			break;
@@ -1153,6 +1176,10 @@ CGEventRef hook_event_proc(CGEventTapProxy tap_proxy, CGEventType type, CGEventR
 
 		#ifdef USE_DEBUG
 		case kCGEventNull:
+			if (previousEventType == NX_SYSDEFINED && process_system_key_flag && system_key_pressed == false) {
+				process_system_key(previousEventTimestamp, previousEventRef);
+				process_system_key_flag = false;
+			}
 			system_key_pressed = false;
 			logger(LOG_LEVEL_DEBUG, "%s [%u]: Ignoring kCGEventNull.\n",
 					__FUNCTION__, __LINE__);
@@ -1162,6 +1189,10 @@ CGEventRef hook_event_proc(CGEventTapProxy tap_proxy, CGEventType type, CGEventR
 		default:
 			// Check for an old OS X bug where the tap seems to timeout for no reason.
 			// See: http://stackoverflow.com/questions/2969110/cgeventtapcreate-breaks-down-mysteriously-with-key-down-events#2971217
+			if (previousEventType == NX_SYSDEFINED && process_system_key_flag && system_key_pressed == false) {
+				process_system_key(previousEventTimestamp, previousEventRef);
+				process_system_key_flag = false;
+			}
 				system_key_pressed = false;
 			if (type == (CGEventType) kCGEventTapDisabledByTimeout) {
 				logger(LOG_LEVEL_WARN, "%s [%u]: CGEventTap timeout!\n",
@@ -1188,6 +1219,9 @@ CGEventRef hook_event_proc(CGEventTapProxy tap_proxy, CGEventType type, CGEventR
 				__FUNCTION__, __LINE__, type, event_ref);
 	}
 
+	previousEventType = type;
+	previousEventRef = event_ref;
+	previousEventTimestamp = timestamp;
 	return result_ref;
 }
 
