@@ -1,16 +1,112 @@
 'use strict';
 
 const path = require('path');
-const fs = require('fs');
 const os = require('os');
 const nugget = require('nugget');
 const rc = require('rc');
 const pump = require('pump');
 const tfs = require('tar-fs');
 const zlib = require('zlib');
+const nodeAbi = require('node-abi');
+const fs = require('fs-extra');
+const tar = require('tar');
 const pkg = require('./package.json');
+const spawn = require('child_process').spawn;
 const supportedTargets = require('./package.json').supportedTargets;
 const { optionsFromPackage } = require('./helpers');
+
+const FILES_TO_ARCHIVE = {
+  "win32": ['build/Release/iohook.node', 'build/Release/uiohook.dll'],
+  "linux": ['build/Release/iohook.node', 'build/Release/uiohook.so'],
+  "darwin": ['build/Release/iohook.node', 'build/Release/uiohook.dylib'],
+}
+
+let gypJsPath = path.join(
+  __dirname,
+  'node_modules',
+  '.bin',
+  process.platform === 'win32' ? 'node-gyp.cmd' : 'node-gyp'
+);
+
+function cpGyp() {
+  try {
+    fs.unlinkSync(path.join(__dirname, 'binding.gyp'));
+    fs.unlinkSync(path.join(__dirname, 'uiohook.gyp'));
+  } catch(e) {
+  }
+  switch (process.platform) {
+    case 'win32':
+    case 'darwin':
+      fs.copySync(path.join(__dirname, 'build_def', process.platform, 'binding.gyp'), path.join(__dirname, 'binding.gyp'));
+      fs.copySync(path.join(__dirname, 'build_def', process.platform, 'uiohook.gyp'), path.join(__dirname, 'uiohook.gyp'));
+      break;
+    default:
+      fs.copySync(path.join(__dirname, 'build_def', 'linux', 'binding.gyp'), path.join(__dirname, 'binding.gyp'));
+      fs.copySync(path.join(__dirname, 'build_def', 'linux', 'uiohook.gyp'), path.join(__dirname, 'uiohook.gyp'));
+      break;
+  }
+}
+
+function build(runtime, version, abi, arch) {
+  cpGyp();
+  return new Promise(function (resolve, reject) {
+  let args = [
+      'configure', 'rebuild',
+      '--target=' + version,
+      '--arch=' + arch
+  ];
+
+    if (/^electron/i.test(runtime)) {
+    args.push('--dist-url=https://atom.io/download/electron');
+    }
+
+    if (parseInt(abi) >= 80) {
+      if (arch === "x64") {
+      args.push('--v8_enable_pointer_compression=1');
+      } else {
+      args.push('--v8_enable_pointer_compression=0');
+      args.push('--v8_enable_31bit_smis_on_64bit_arch=1');
+      }
+    }
+    if (process.platform !== "win32") {
+      if (parseInt(abi) >= 64) {
+      args.push('--build_v8_with_gn=false');
+      }
+      if (parseInt(abi) >= 67) {
+      args.push('--enable_lto=false');
+      }
+    }
+
+    console.log('Compiling iohook for ' + runtime + ' v' + version + '>>>>');
+  if (process.platform === 'win32') {
+    if (version.split('.')[0] >= 4) {
+      process.env.msvs_toolset = 15
+      process.env.msvs_version = 2017
+    } else {
+      process.env.msvs_toolset = 12
+      process.env.msvs_version = 2013
+    }
+    args.push('--msvs_version=' + process.env.msvs_version);
+  } else {
+    process.env.gyp_iohook_runtime = runtime;
+    process.env.gyp_iohook_abi = abi;
+    process.env.gyp_iohook_platform = process.platform;
+    process.env.gyp_iohook_arch = arch;
+  }
+
+    let proc = spawn(gypJsPath, args, {
+      env: process.env
+    });
+    proc.stdout.pipe(process.stdout);
+    proc.stderr.pipe(process.stderr);
+    proc.on('exit', function (code, sig) {
+      if (code === 1) {
+        return reject(new Error('Failed to build...'))
+      }
+      resolve()
+    })
+  })
+}
 
 function onerror(err) {
   throw err;
@@ -58,7 +154,10 @@ function install(runtime, abi, platform, arch, cb) {
     nuggetOpts.strictSSL = false;
   }
 
-  nugget(downloadUrl, nuggetOpts, function(errors) {
+  nugget(downloadUrl, nuggetOpts, async function(errors) {
+     
+    let targetFile = path.join(__dirname, 'builds', essential);
+
     if (errors) {
       const error = errors[0];
 
@@ -66,10 +165,28 @@ function install(runtime, abi, platform, arch, cb) {
         onerror(error);
       } else {
         console.error('Prebuild for current platform (' + currentPlatform + ') not found!');
-        console.error('Try to compile for your platform:');
-        console.error('# cd node_modules/iohook;');
-        console.error('# npm run build');
-        console.error('');
+        console.error('Trying to compile for your platform.');
+        await build(runtime, process.versions.node, abi, arch);
+        const tarPath = 'prebuilds/' + pkg.name + '-v' + pkg.version + '-' + runtime + '-v' + abi + '-' + process.platform + '-' + arch + '.tar.gz';
+        if (!fs.existsSync(path.dirname(tarPath))) {
+          fs.mkdirSync(path.dirname(tarPath));
+        }
+        await tar.c(
+          {
+            gzip: true,
+            file: tarPath,
+            sync: true,
+          },
+          FILES_TO_ARCHIVE[process.platform],
+        );
+        await tar.c(
+          {
+            gzip: true,
+            file: path.resolve(os.tmpdir(), 'prebuild.tar.gz'),
+            sync: true,
+          },
+          ['prebuilds'],
+        );
       }
     }
 
@@ -83,7 +200,8 @@ function install(runtime, abi, platform, arch, cb) {
     let updateName = function(entry) {
       if (/\.node$/i.test(entry.name)) binaryName = entry.name
     };
-    let targetFile = path.join(__dirname, 'builds', essential);
+    await fs.remove(path.join(__dirname, 'builds'));
+    await fs.ensureDir(path.join(__dirname, 'builds'));
     let extract = tfs.extract(targetFile, options)
       .on('entry', updateName);
     pump(fs.createReadStream(path.join(nuggetOpts.dir, nuggetOpts.target)), zlib.createGunzip(), extract, function(err) {
