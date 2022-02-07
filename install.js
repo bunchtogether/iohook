@@ -174,20 +174,14 @@ function install(runtime, abi, platform, arch, cb) {
         await tar.c(
           {
             gzip: true,
-            file: tarPath,
+            file: path.resolve(os.tmpdir(), 'prebuild.tar.gz'),
             sync: true,
           },
           FILES_TO_ARCHIVE[process.platform],
         );
-        await tar.c(
-          {
-            gzip: true,
-            file: path.resolve(os.tmpdir(), 'prebuild.tar.gz'),
-            sync: true,
-          },
-          ['prebuilds'],
-        );
       }
+      await fs.remove(path.join(__dirname, 'build'));
+      await fs.remove(path.join(__dirname, 'prebuild'));
     }
 
     let options = {
