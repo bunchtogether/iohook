@@ -166,7 +166,7 @@ function install(runtime, abi, platform, arch, cb) {
       } else {
         console.error('Prebuild for current platform (' + currentPlatform + ') not found!');
         console.error('Trying to compile for your platform.');
-        await build(runtime, process.versions.node, process.versions.modules, arch);
+        await build(runtime, nodeAbi.getTarget(abi, runtime), abi, arch);
         const tarPath = 'prebuilds/' + pkg.name + '-v' + pkg.version + '-' + runtime + '-v' + abi + '-' + process.platform + '-' + arch + '.tar.gz';
         if (!fs.existsSync(path.dirname(tarPath))) {
           fs.mkdirSync(path.dirname(tarPath));
@@ -247,7 +247,7 @@ if (options.targets.length > 0) {
 } else {
   const isElectron = fs.existsSync(path.resolve(__dirname, '..', 'electron'));
   const runtime = isElectron ? 'electron' : 'node';
-  const abi = isElectron ? nodeAbi.getAbi(require(__dirname, '..', 'electron', 'package.json').version, 'electron') : process.versions.modules;
+  const abi = isElectron ? nodeAbi.getAbi(require(__dirname, '..', 'electron', 'pack').version, 'electron') : process.versions.modules;
   const platform = process.platform;
   const arch = process.arch;
   install(runtime, abi, platform, arch, function() {
