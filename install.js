@@ -251,7 +251,7 @@ if (options.targets.length > 0) {
     })
   })
 } else {
-  const runtime = process.versions['electron'] ? 'electron' : 'node';
+  const runtime = fs.existsSync(path.resolve(__dirname, '..', 'electron')) ? 'electron' : 'node';
   const abi = process.versions.modules;
   const platform = process.platform;
   const arch = process.arch;
