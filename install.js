@@ -245,9 +245,8 @@ if (options.targets.length > 0) {
     })
   })
 } else {
-  const isElectron = fs.existsSync(path.resolve(__dirname, '..', 'electron'));
-  const runtime = isElectron ? 'electron' : 'node';
-  const abi = isElectron ? nodeAbi.getAbi(require(path.resolve(__dirname, '..', 'electron', 'package.json')).version, 'electron') : process.versions.modules;
+  const runtime = process.versions['electron'] ? 'electron' : 'node';
+  const abi = process.versions.modules;
   const platform = process.platform;
   const arch = process.arch;
   install(runtime, abi, platform, arch, function() {
