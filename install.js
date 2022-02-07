@@ -166,7 +166,7 @@ function install(runtime, abi, platform, arch, cb) {
       } else {
         console.error('Prebuild for current platform (' + currentPlatform + ') not found!');
         console.error('Trying to compile for your platform.');
-        await build(runtime, process.versions.node, abi, arch);
+        await build(runtime, process.versions.node, process.versions.modules, arch);
         const tarPath = 'prebuilds/' + pkg.name + '-v' + pkg.version + '-' + runtime + '-v' + abi + '-' + process.platform + '-' + arch + '.tar.gz';
         if (!fs.existsSync(path.dirname(tarPath))) {
           fs.mkdirSync(path.dirname(tarPath));
